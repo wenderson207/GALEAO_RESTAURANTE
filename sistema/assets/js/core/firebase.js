@@ -33,5 +33,5 @@ export {
 
 export {
   signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
-  onAuthStateChanged, sendPasswordResetEmail,
+  onAuthStateChanged, sendPasswordResetEmail, sendEmailVerification, reload,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
