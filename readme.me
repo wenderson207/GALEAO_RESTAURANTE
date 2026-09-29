@@ -24,7 +24,8 @@ Controle de estoque multiunidade com tela de retirada para tablet e **previsão 
             └── pages/
                 ├── login.js           login e primeiro acesso
                 ├── operacao.js        tela do tablet
-                └── admin/             painel, reposição, produtos, entradas, consumo,
+                └── admin/             painel, reposição (lista + calendário), listas de compras,
+                                       produtos, entradas, consumo,
                                        movimentações, relatórios, funcionários,
                                        fornecedores, unidades, acessos, configurações
 ```
@@ -33,6 +34,8 @@ Endereços depois de publicado:
 - `https://SEU-PROJETO.web.app/` → institucional
 - `https://SEU-PROJETO.web.app/sistema/` → sistema
 - `https://SEU-PROJETO.web.app/sistema/#/operacao` → tablet (pode "Adicionar à tela inicial")
+
+Na Vercel funciona igual (o `vercel.json` já cuida da barra no final). **Atenção:** a Vercel não publica as regras do Firestore — cole `firestore.rules` no Console do Firebase → Firestore → Regras → Publicar sempre que ele mudar.
 
 ## Como economiza leituras do Firebase
 
@@ -69,6 +72,28 @@ Endereços depois de publicado:
 5. **Acessos** → crie um login "Tablet / Operação" para cada tablet.
 6. No tablet: entre com esse login → ⚙️ → escolha a unidade → ⛶ tela cheia.
 
+## Tamanhos das imagens
+
+| Imagem | Envie | Formato | O sistema guarda | Onde aparece |
+|---|---|---|---|---|
+| Foto do produto | quadrada 1:1, mínimo **600×600 px** | JPG, PNG ou WebP | 480×480 (recorta o centro) | cards do tablet, listas, relatórios |
+| Foto do funcionário | quadrada 1:1, mínimo **400×400 px**, rosto no centro | JPG ou PNG | 240×240 | círculo de 96 px no tablet |
+| Logo da empresa | **512×512 px**, fundo transparente | PNG | 256 px | menu (40 px) e topo do tablet (44 px) |
+| Ícone do app (tela inicial) | 512×512, 192×192 e 180×180 px | PNG | arquivos em `sistema/assets/img/` | ícone ao instalar no tablet/celular |
+| Favicon (aba do navegador) | vetor | SVG | `sistema/assets/img/icone.svg` | aba do navegador |
+
+Para trocar o ícone do app, substitua `icone-512.png`, `icone-192.png` e `icone-180.png` mantendo os mesmos nomes.
+
+## Tablet (retirada de estoque)
+
+1. Em **Acessos**, crie um acesso com permissão **Tablet / Operação** e marque **uma** unidade.
+2. No tablet, abra `…/sistema/`, entre com esse login.
+3. **Recomendado:** no menu do navegador, toque em **"Adicionar à tela inicial"** (Android: Chrome ⋮ → Instalar app; iPad: Safari ⬆︎ → Adicionar à Tela de Início). Aberto pelo ícone, o sistema já abre em tela cheia, direto na retirada.
+4. Pelo navegador, a tela cheia é ativada no primeiro toque (os navegadores não permitem ativar sozinho sem um toque).
+5. O único botão é **⟳ Recarregar**. Para trocar a unidade ou sair, **segure o título "RETIRADA DE ESTOQUE" por 3 segundos**.
+
+O login de tablet não abre nenhuma outra tela: qualquer outro endereço volta para a retirada.
+
 ## Permissões
 
 | Papel | Pode |
@@ -78,6 +103,12 @@ Endereços depois de publicado:
 | Tablet / Operação | somente retirada |
 
 As regras (`firestore.rules`) garantem isso no servidor: o tablet só consegue diminuir estoque e criar movimentações de saída. Movimentações nunca podem ser alteradas ou apagadas.
+
+## Busca automática de endereço e CNPJ
+
+- **CEP → endereço:** ao digitar os 8 números do CEP, rua, bairro, cidade e UF são preenchidos (ViaCEP, gratuito). Vale para fornecedores, unidades e dados da empresa.
+- **CNPJ → dados:** o botão "Buscar dados do CNPJ" preenche razão social, nome fantasia, telefone e endereço (BrasilAPI, gratuito). Só preenche campos vazios.
+- Os dois precisam de internet; sem ela, os campos continuam editáveis à mão.
 
 ## Limitações conhecidas (honestas)
 
