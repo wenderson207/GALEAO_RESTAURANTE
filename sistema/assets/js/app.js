@@ -10,7 +10,7 @@ import { observarSessao } from "./core/auth.js";
 import { sync } from "./core/sync.js";
 import { estado } from "./core/estado.js";
 import { $ } from "./core/util.js";
-import { telaLogin, telaPrimeiroAcesso, telaSemPerfil, telaNaoConfigurado } from "./pages/login.js";
+import { telaLogin, telaPrimeiroAcesso, telaSemPerfil, telaNaoConfigurado, telaConvite } from "./pages/login.js";
 import { telaOperacao } from "./pages/operacao.js";
 import { telaAdmin } from "./pages/admin/layout.js";
 
@@ -22,14 +22,22 @@ let empresaSincronizada = null;
 function montar(fn, ...args) {
   try { limpar?.(); } catch {}
   limpar = null;
+  // janelas abertas de uma tela não podem sobrar na próxima (ex.: sair do sistema com um modal aberto)
+  document.querySelectorAll(".modal-fundo, .op-etapa, .op-sucesso, .op-capa").forEach((n) => n.remove());
   app.innerHTML = "";
-  limpar = fn(app, ...args) || null;
+  const r = fn(app, ...args);
+  limpar = typeof r === "function" ? r : null;
 }
 
 function rota() { return (location.hash || "#/").slice(1); }
 
 function renderizar() {
   const r = rota();
+  // link de convite: abre mesmo sem login (e mesmo logado sem perfil)
+  if (r.startsWith("/convite/") && (!estado.usuario || !estado.perfil)) {
+    if (estado.criandoEmpresa) return;
+    return montar(telaConvite, r.split("/")[2] || "");
+  }
   if (!estado.usuario) {
     if (r === "/primeiro-acesso") return montar(telaPrimeiroAcesso);
     return montar(telaLogin);
