@@ -5,7 +5,7 @@
 import { sync } from "../../core/sync.js";
 import { estado } from "../../core/estado.js";
 import { salvarFuncionario } from "../../core/db.js";
-import { $, $$, esc, modal, toast, lerForm, comprimirImagem, gerarHashPin, avatar, dataHora } from "../../core/util.js";
+import { $, $$, esc, modal, toast, lerForm, comprimirPorTipo, IMAGENS, gerarHashPin, avatar, dataHora } from "../../core/util.js";
 import { vazio } from "./componentes.js";
 
 let mostrarInativos = false;
@@ -52,7 +52,8 @@ function formFuncionario(f, unidadePadrao) {
     <form class="form-grade" onsubmit="return false">
       <div class="campo" style="grid-column:1/-1"><span>Foto</span>
         <div class="foto-upload"><div class="preview" data-preview style="border-radius:50%">${foto ? `<img src="${esc(foto)}" alt="">` : "🙂"}</div>
-        <label class="btn btn-sec">Escolher foto<input type="file" accept="image/*" capture="user" data-foto hidden></label></div></div>
+        <label class="btn btn-sec">Escolher foto<input type="file" accept="image/*" capture="user" data-foto hidden></label></div>
+        <small>${IMAGENS.funcionario.dica}</small></div>
       <label class="campo"><span>Nome</span><input name="nome" required value="${esc(f.nome || "")}"></label>
       <label class="campo"><span>Cargo</span><input name="cargo" value="${esc(f.cargo || "")}" placeholder="Ex.: Cozinheiro"></label>
       <label class="campo"><span>${novo ? "PIN (4 números)" : "Novo PIN (deixe vazio para manter)"}</span>
@@ -66,7 +67,7 @@ function formFuncionario(f, unidadePadrao) {
       const input = $("[data-foto]", m);
       input.onchange = async () => {
         if (!input.files[0]) return;
-        try { foto = await comprimirImagem(input.files[0], 240); $("[data-preview]", m).innerHTML = `<img src="${foto}" alt="">`; }
+        try { foto = await comprimirPorTipo(input.files[0], "funcionario"); $("[data-preview]", m).innerHTML = `<img src="${foto}" alt="">`; }
         catch (e) { toast(e.message, "erro"); }
       };
     },
