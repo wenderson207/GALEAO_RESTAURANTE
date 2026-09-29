@@ -117,26 +117,167 @@ export function lerForm(form) {
 }
 
 // ------------------------------------------------ Imagem
-// Reduz a foto para ~320px WebP (≈10–25 KB) e guarda dentro do próprio documento.
-// Assim não precisa do Firebase Storage (que exige plano pago) e a foto fica no cache.
-export function comprimirImagem(arquivo, lado = 320, qualidade = 0.72) {
+// Tamanhos que o sistema GUARDA (a foto enviada pode ser maior; é reduzida aqui).
+// Tudo fica dentro do próprio documento (sem Firebase Storage, que exige plano pago).
+export const IMAGENS = {
+  produto:     { lado: 480, quadrado: true,  dica: "Foto quadrada (1:1), mínimo 600×600 px. O produto centralizado, fundo limpo." },
+  funcionario: { lado: 240, quadrado: true,  dica: "Foto quadrada (1:1), mínimo 400×400 px, rosto no centro (aparece em círculo)." },
+  logo:        { lado: 256, quadrado: false, transparente: true, dica: "Logo quadrada, 512×512 px, PNG com fundo transparente." },
+};
+
+// quadrado=true recorta o centro para 1:1 (o que aparece no tablet é exatamente o que você vê aqui)
+export function comprimirImagem(arquivo, lado = 320, qualidade = 0.8, { quadrado = false, transparente = false } = {}) {
   return new Promise((resolve, reject) => {
+    if (arquivo.size > 15 * 1024 * 1024) return reject(new Error("Imagem muito grande (máx. 15 MB)"));
     const img = new Image();
     const url = URL.createObjectURL(arquivo);
     img.onload = () => {
-      const fator = Math.min(1, lado / Math.max(img.width, img.height));
-      const w = Math.round(img.width * fator), h = Math.round(img.height * fator);
+      let sx = 0, sy = 0, sw = img.width, sh = img.height;
+      if (quadrado) { const m = Math.min(sw, sh); sx = (sw - m) / 2; sy = (sh - m) / 2; sw = sh = m; }
+      const fator = Math.min(1, lado / Math.max(sw, sh));
+      const w = Math.round(sw * fator), h = Math.round(sh * fator);
       const c = document.createElement("canvas");
       c.width = w; c.height = h;
-      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      const ctx = c.getContext("2d");
+      if (!transparente) { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); }
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
       URL.revokeObjectURL(url);
       let dataUrl = c.toDataURL("image/webp", qualidade);
-      if (!dataUrl.startsWith("data:image/webp")) dataUrl = c.toDataURL("image/jpeg", qualidade);
+      if (!dataUrl.startsWith("data:image/webp")) dataUrl = transparente ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", qualidade);
       resolve(dataUrl);
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Imagem inválida")); };
     img.src = url;
   });
+}
+export function comprimirPorTipo(arquivo, tipo) {
+  const c = IMAGENS[tipo];
+  return comprimirImagem(arquivo, c.lado, 0.8, c);
+}
+
+// ------------------------------------------------ Máscaras (CPF/CNPJ, CEP, telefone)
+export const soDigitos = (v) => String(v || "").replace(/\D/g, "");
+const MASCARAS = {
+  cep: (d) => d.slice(0, 8).replace(/^(\d{5})(\d)/, "$1-$2"),
+  cnpj: (d) => d.slice(0, 14).replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1/$2").replace(/(\d{4})(\d)/, "$1-$2"),
+  telefone: (d) => {
+    d = d.slice(0, 11);
+    if (d.length <= 10) return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
+    return d.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
+  },
+};
+export function formatar(tipo, v) { return v ? MASCARAS[tipo](soDigitos(v)) : ""; }
+// Aplica máscara em todo input com data-mascara="cep|cnpj|telefone" dentro de raiz
+export function ligarMascaras(raiz) {
+  $$("[data-mascara]", raiz).forEach((i) => {
+    const f = MASCARAS[i.dataset.mascara]; if (!f) return;
+    i.inputMode = "numeric";
+    const aplicar = () => { i.value = f(soDigitos(i.value)); };
+    i.addEventListener("input", aplicar); aplicar();
+  });
+}
+
+// ------------------------------------------------ Endereço pelo CEP (ViaCEP, gratuito)
+// Campos esperados no formulário: cep, logradouro, numero, bairro, cidade, uf
+export async function buscarCep(cep) {
+  const d = soDigitos(cep);
+  if (d.length !== 8) throw new Error("CEP deve ter 8 números");
+  const r = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+  const j = await r.json();
+  if (j.erro) throw new Error("CEP não encontrado");
+  return { logradouro: j.logradouro, bairro: j.bairro, cidade: j.localidade, uf: j.uf, complemento: j.complemento };
+}
+export function ligarCep(form) {
+  const cep = form.querySelector("[name=cep]"); if (!cep) return;
+  let ultimo = "";
+  const status = document.createElement("small");
+  cep.insertAdjacentElement("afterend", status);
+  cep.addEventListener("input", async () => {
+    const d = soDigitos(cep.value);
+    if (d.length !== 8 || d === ultimo) return;
+    ultimo = d; status.textContent = "Buscando endereço…";
+    try {
+      const e = await buscarCep(d);
+      for (const k of ["logradouro", "bairro", "cidade", "uf"]) {
+        const campo = form.querySelector(`[name=${k}]`);
+        if (campo && e[k]) campo.value = e[k];
+      }
+      status.textContent = "✓ Endereço preenchido";
+      form.querySelector("[name=numero]")?.focus();
+    } catch (err) { status.textContent = err.message.includes("fetch") ? "Sem internet para buscar o CEP" : err.message; }
+  });
+}
+
+// ------------------------------------------------ Dados pelo CNPJ (BrasilAPI, gratuito)
+export async function buscarCnpj(cnpj) {
+  const d = soDigitos(cnpj);
+  if (d.length !== 14) throw new Error("CNPJ deve ter 14 números");
+  const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${d}`);
+  if (!r.ok) throw new Error("CNPJ não encontrado");
+  const j = await r.json();
+  return {
+    razaoSocial: j.razao_social || "", nomeFantasia: j.nome_fantasia || "",
+    telefone: formatar("telefone", j.ddd_telefone_1 || ""), email: (j.email || "").toLowerCase(),
+    cep: formatar("cep", j.cep || ""), logradouro: [j.descricao_tipo_de_logradouro, j.logradouro].filter(Boolean).join(" "),
+    numero: j.numero || "", complemento: j.complemento || "", bairro: j.bairro || "", cidade: j.municipio || "", uf: j.uf || "",
+  };
+}
+// Botão "Buscar" ao lado do CNPJ: preenche só os campos vazios
+export function ligarCnpj(form) {
+  const campo = form.querySelector("[name=cnpj]"); if (!campo) return;
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "btn btn-sec btn-pequeno"; btn.textContent = "🔎 Buscar dados do CNPJ";
+  const status = document.createElement("small");
+  campo.insertAdjacentElement("afterend", btn); btn.insertAdjacentElement("afterend", status);
+  btn.onclick = async () => {
+    status.textContent = "Consultando…"; btn.disabled = true;
+    try {
+      const d = await buscarCnpj(campo.value);
+      for (const [k, v] of Object.entries(d)) {
+        const el = form.querySelector(`[name=${k}]`);
+        if (el && v && !el.value.trim()) el.value = v;
+      }
+      status.textContent = "✓ Dados preenchidos (confira)";
+    } catch (e) { status.textContent = e.message.includes("fetch") ? "Sem internet para consultar" : e.message; }
+    finally { btn.disabled = false; }
+  };
+}
+
+// Bloco de endereço reutilizável (qualquer cadastro)
+export function camposEndereco(d = {}) {
+  const v = (k) => esc(d[k] || "");
+  return `
+    <div class="form-secao">Endereço</div>
+    <label class="campo"><span>CEP</span><input name="cep" data-mascara="cep" value="${v("cep")}" placeholder="00000-000"></label>
+    <label class="campo campo-largo"><span>Rua / Avenida</span><input name="logradouro" value="${v("logradouro")}"></label>
+    <label class="campo"><span>Número</span><input name="numero" value="${v("numero")}"></label>
+    <label class="campo"><span>Complemento</span><input name="complemento" value="${v("complemento")}"></label>
+    <label class="campo"><span>Bairro</span><input name="bairro" value="${v("bairro")}"></label>
+    <label class="campo"><span>Cidade</span><input name="cidade" value="${v("cidade")}"></label>
+    <label class="campo"><span>UF</span><input name="uf" maxlength="2" value="${v("uf")}" style="text-transform:uppercase"></label>`;
+}
+export function enderecoTexto(d = {}) {
+  const l1 = [d.logradouro, d.numero].filter(Boolean).join(", ");
+  const l2 = [d.bairro, [d.cidade, d.uf].filter(Boolean).join("/")].filter(Boolean).join(" — ");
+  return [l1 + (d.complemento ? " " + d.complemento : ""), l2, d.cep].filter(Boolean).join(" · ");
+}
+
+// ------------------------------------------------ Impressão
+// Imprime só o HTML passado (o resto da tela é escondido pelo CSS @media print)
+export function imprimir(html, titulo = "") {
+  document.getElementById("impressao")?.remove();
+  const area = document.createElement("div");
+  area.id = "impressao";
+  area.innerHTML = html;
+  document.body.appendChild(area);
+  document.body.classList.add("imprimindo");
+  const tituloAntigo = document.title;
+  if (titulo) document.title = titulo;
+  const fim = () => { document.body.classList.remove("imprimindo"); area.remove(); document.title = tituloAntigo; };
+  window.addEventListener("afterprint", fim, { once: true });
+  setTimeout(() => window.print(), 50);
 }
 
 // ------------------------------------------------ PIN (nunca guardado em texto)
