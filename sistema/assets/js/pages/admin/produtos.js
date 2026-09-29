@@ -6,7 +6,7 @@ import { sync } from "../../core/sync.js";
 import { estado } from "../../core/estado.js";
 import { salvarProduto, registrarAjuste } from "../../core/db.js";
 import { calcularPrevisao } from "../../core/previsao.js";
-import { $, esc, num, moeda, modal, toast, lerForm, comprimirImagem, paraNumero } from "../../core/util.js";
+import { $, esc, num, moeda, modal, toast, lerForm, comprimirPorTipo, IMAGENS, paraNumero } from "../../core/util.js";
 import { selo, fotoMini, vazio, categorias, opcoesUnidade, opcoesFornecedor, produtosFiltrados } from "./componentes.js";
 import { abrirExplicacao } from "./reposicao.js";
 
@@ -94,6 +94,7 @@ export function formProduto(p, unidadePadrao) {
       <div class="foto-upload"><div class="preview" data-preview>${foto ? `<img src="${esc(foto)}" alt="">` : "📷"}</div>
         <div class="linha"><label class="btn btn-sec">Escolher foto<input type="file" accept="image/*" capture="environment" data-foto hidden></label>
         <button type="button" class="btn btn-texto" data-tirar-foto ${foto ? "" : "hidden"}>Remover</button></div></div>
+      <small>${IMAGENS.produto.dica} O sistema recorta o centro em quadrado.</small>
     </div>
     <label class="campo" style="grid-column:1/-1"><span>Nome do produto</span><input name="nome" required value="${v("nome")}" placeholder="Ex.: Arroz"></label>
     <label class="campo"><span>Categoria</span><input name="categoria" list="lista-cat" value="${v("categoria")}" placeholder="Ex.: Grãos"><datalist id="lista-cat">${categorias().map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
@@ -126,7 +127,7 @@ export function formProduto(p, unidadePadrao) {
       const remover = $("[data-tirar-foto]", m);
       input.onchange = async () => {
         if (!input.files[0]) return;
-        try { foto = await comprimirImagem(input.files[0]); prev.innerHTML = `<img src="${foto}" alt="">`; remover.hidden = false; }
+        try { foto = await comprimirPorTipo(input.files[0], "produto"); prev.innerHTML = `<img src="${foto}" alt="">`; remover.hidden = false; }
         catch (e) { toast(e.message, "erro"); }
       };
       remover.onclick = () => { foto = ""; prev.textContent = "📷"; remover.hidden = true; };
@@ -137,7 +138,7 @@ export function formProduto(p, unidadePadrao) {
         const pz = $("[name=prazoFornecedor]", m);
         if (f?.prazoDias && !pz.value) pz.value = f.prazoDias;
       };
-      setTimeout(() => $("[name=nome]", m)?.focus(), 50);
+      $("[name=nome]", m)?.focus();
     },
     acoes: [
       { texto: "Cancelar", classe: "btn-sec" },
@@ -177,7 +178,7 @@ export function formAjuste(p) {
         const d = paraNumero(i.value) - Number(p.estoque || 0);
         $("[data-dif]", m).textContent = i.value ? `Diferença: ${d > 0 ? "+" : ""}${num(d)} ${un}` : "";
       };
-      setTimeout(() => i.focus(), 50);
+      i.focus();
     },
     acoes: [
       { texto: "Cancelar", classe: "btn-sec" },
