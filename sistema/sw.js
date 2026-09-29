@@ -3,7 +3,7 @@
 // Estratégia "rede primeiro": com internet pega a versão nova do código;
 // sem internet usa a cópia salva. (Os DADOS ficam no IndexedDB, não aqui.)
 // =====================================================================
-const CACHE = "estoque-app-v1";
+const CACHE = "estoque-app-v2";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => {
