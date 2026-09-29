@@ -152,18 +152,47 @@ export function salvarProduto(dados, id) {
   return enviar(lote.commit(), "Produto não salvo");
 }
 
+// Define quais produtos um fornecedor entrega (cada produto tem 1 fornecedor principal)
+export function vincularProdutosFornecedor(fornecedorId, idsMarcados) {
+  const marcados = new Set(idsMarcados);
+  const lote = writeBatch(db);
+  let n = 0;
+  for (const p of sync.lista("produtos")) {
+    const era = p.fornecedorId === fornecedorId, fica = marcados.has(p.id);
+    if (era === fica) continue;
+    const novo = fica ? fornecedorId : "";
+    lote.update(ref("produtos", p.id), { fornecedorId: novo, atualizadoEm: serverTimestamp() });
+    sync.aplicarLocal("produtos", p.id, { fornecedorId: novo });
+    n++;
+  }
+  if (!n) return Promise.resolve(0);
+  return enviar(lote.commit(), "Vínculo não salvo").then(() => n);
+}
+
 // ---------------------------------------------------------------- CADASTROS SIMPLES
 function salvarSimples(col, dados, id) {
   const docId = id || idNovo();
   const novo = !id;
   const payload = { ...dados, atualizadoEm: serverTimestamp(), ...(novo ? { criadoEm: serverTimestamp() } : {}) };
   sync.aplicarLocal(col, docId, { ...dados, ...(novo ? { criadoEm: Date.now() } : {}) });
-  return enviar(setDoc(ref(col, docId), payload, { merge: true }), "Cadastro não salvo").then(() => docId);
+  enviar(setDoc(ref(col, docId), payload, { merge: true }), "Cadastro não salvo");
+  // não espera o servidor: offline a gravação fica na fila e a tela segue normalmente
+  return Promise.resolve(docId);
 }
 
 export const salvarUnidade = (d, id) => salvarSimples("unidades", d, id);
 export const salvarFornecedor = (d, id) => salvarSimples("fornecedores", d, id);
 export const salvarFuncionario = (d, id) => salvarSimples("funcionarios", d, id);
+
+// ---------------------------------------------------------------- LISTAS DE COMPRAS
+// 1 documento por lista (os itens ficam dentro) = abrir uma lista custa 1 leitura.
+// "Excluir" marca excluida:true (o sync incremental precisa ver a exclusão nos outros aparelhos).
+export function salvarLista(dados, id) {
+  return salvarSimples("listasCompras", dados, id);
+}
+export function excluirLista(id) {
+  return salvarSimples("listasCompras", { excluida: true, excluidaPor: estado.perfil.nome || "", excluidaEm: Date.now() }, id);
+}
 
 // ---------------------------------------------------------------- EMPRESA / CONFIG
 export function salvarEmpresa(parcial) {
