@@ -1,0 +1,87 @@
+# Estoque Inteligente — ERP de estoque para restaurantes
+
+Controle de estoque multiunidade com tela de retirada para tablet e **previsão de reposição** baseada no consumo real.
+
+## Estrutura do repositório
+
+```
+/                         ← raiz: reservada para a PÁGINA INSTITUCIONAL
+├── index.html            ← página institucional (provisória) — pode trocar à vontade
+├── firebase.json         ← hospedagem + regras (serve a raiz inteira)
+├── firestore.rules       ← segurança do banco (permissões por papel)
+├── firestore.indexes.json
+└── sistema/              ← O ERP fica todo aqui, isolado
+    ├── index.html        ← entrada do sistema (login, tablet e painel)
+    ├── sw.js             ← abre o sistema mesmo sem internet
+    ├── manifest.webmanifest
+    └── assets/
+        ├── css/          base.css · admin.css · operacao.css
+        ├── img/          icone.svg
+        └── js/
+            ├── app.js                 rotas
+            ├── config/firebase-config.js   ← COLE SUAS CREDENCIAIS AQUI
+            ├── core/                  firebase, cache, sync, previsao, db, auth, estado, util
+            └── pages/
+                ├── login.js           login e primeiro acesso
+                ├── operacao.js        tela do tablet
+                └── admin/             painel, reposição, produtos, entradas, consumo,
+                                       movimentações, relatórios, funcionários,
+                                       fornecedores, unidades, acessos, configurações
+```
+
+Endereços depois de publicado:
+- `https://SEU-PROJETO.web.app/` → institucional
+- `https://SEU-PROJETO.web.app/sistema/` → sistema
+- `https://SEU-PROJETO.web.app/sistema/#/operacao` → tablet (pode "Adicionar à tela inicial")
+
+## Como economiza leituras do Firebase
+
+1. **Cache no aparelho (IndexedDB)** — ao abrir, a tela aparece com os dados salvos no próprio aparelho: 0 leituras.
+2. **Sincronização incremental** — todo documento tem `atualizadoEm` (horário do servidor). O sistema pede ao Firebase só o que mudou desde a última sincronização. Se nada mudou, custa 1 leitura por coleção.
+3. **Tempo real barato** — quando outro aparelho altera algo, só aquele documento é enviado (1 leitura).
+4. **Previsão com agregado diário** — o consumo é somado em 1 documento por unidade por dia (`consumoDiario`), então calcular a previsão não exige ler todas as retiradas.
+5. **Tablet leve** — o login de tablet só sincroniza unidades, funcionários e produtos.
+6. **Histórico sob demanda** — um aparelho novo baixa só os últimos 90 dias de movimentações; períodos mais antigos são buscados uma única vez quando um relatório pedir, e ficam guardados.
+7. **Offline** — sem internet, retiradas ficam na fila do Firestore e são enviadas quando a conexão voltar.
+
+## Colocar no ar (Windows)
+
+1. **Firebase Console** (console.firebase.google.com) → criar projeto.
+2. **Authentication** → Método de login → ativar **E-mail/senha**.
+3. **Firestore Database** → Criar banco (modo produção, região `southamerica-east1`).
+4. **Configurações do projeto** → Seus apps → **App da Web** → copie o `firebaseConfig` e cole em `sistema/assets/js/config/firebase-config.js`.
+5. No terminal (PowerShell), dentro da pasta do projeto:
+   ```
+   npm install -g firebase-tools
+   firebase login
+   firebase use --add        (escolha o projeto)
+   firebase deploy
+   ```
+   O deploy publica o site **e** as regras do Firestore.
+6. Abra `/sistema/`, clique em **Primeiro acesso** e crie a empresa (você vira Administrador).
+
+## Primeiros passos no sistema
+
+1. **Restaurantes / unidades** → cadastre as unidades.
+2. **Fornecedores** → nome e prazo de entrega.
+3. **Produtos** → foto, categoria, estoque atual, mínimo, segurança, prazo, cobertura.
+4. **Funcionários** → nome, foto e PIN de 4 números.
+5. **Acessos** → crie um login "Tablet / Operação" para cada tablet.
+6. No tablet: entre com esse login → ⚙️ → escolha a unidade → ⛶ tela cheia.
+
+## Permissões
+
+| Papel | Pode |
+|---|---|
+| Administrador | tudo (unidades, acessos, configurações) |
+| Gerente | estoque, compras, relatórios, funcionários, fornecedores |
+| Tablet / Operação | somente retirada |
+
+As regras (`firestore.rules`) garantem isso no servidor: o tablet só consegue diminuir estoque e criar movimentações de saída. Movimentações nunca podem ser alteradas ou apagadas.
+
+## Limitações conhecidas (honestas)
+
+- **PIN**: é guardado como hash PBKDF2 com sal e o tablet bloqueia após 5 erros. Porém, como o tablet precisa ler o hash para conferir o PIN, alguém com conhecimento técnico e acesso a um login do sistema conseguiria testar os 10 mil PINs possíveis fora do app. O PIN identifica o funcionário; a segurança real está no login do tablet. Proteção total exigiria Cloud Functions (plano Blaze).
+- **Fotos**: são reduzidas para ~320px e salvas dentro do próprio documento (sem Firebase Storage, que exige plano pago). Suficiente para identificar o produto no tablet.
+- **Estoque é por unidade**: o mesmo produto em duas unidades são dois cadastros (cada um com seu estoque, mínimo e previsão).
+- **Previsão** precisa de pelo menos 3 dias de uso para aparecer; antes disso o sistema avisa "Dados insuficientes".
