@@ -8,7 +8,8 @@
 import { estado } from "../../core/estado.js";
 import { PAPEIS, criarAcesso, recuperarSenha } from "../../core/auth.js";
 import { listarAcessos, atualizarAcesso } from "../../core/db.js";
-import { $, $$, esc, modal, toast, confirmar, dataHora } from "../../core/util.js";
+import { $, $$, esc, modal, toast, confirmar, dataHora, data } from "../../core/util.js";
+import { criarConvite, listarConvites, cancelarConvite, linkConvite, situacaoConvite } from "../../core/convites.js";
 import { vazio } from "./componentes.js";
 
 const DESCRICAO = {
@@ -18,12 +19,58 @@ const DESCRICAO = {
 };
 
 let cache = null;
+let cacheConvites = [];
 
 function render(el) {
   if (cache) desenhar(el, cache);
   else el.innerHTML = `<div class="card"><div class="giro"></div></div>`;
-  listarAcessos().then((lista) => { cache = lista; desenhar(el, lista); }).catch((e) => {
+  Promise.all([listarAcessos(), listarConvites().catch(() => [])]).then(([lista, convites]) => {
+    cache = lista; cacheConvites = convites; desenhar(el, lista);
+  }).catch((e) => {
     el.innerHTML = `<div class="card">${vazio("⚠️", "Não foi possível carregar os acessos. " + esc(e.message))}</div>`;
+  });
+}
+
+function blocoConvites() {
+  const ms = (t) => (t?.toMillis ? t.toMillis() : t);
+  const pend = cacheConvites.filter((c) => !situacaoConvite(c)).sort((a, b) => (ms(b.criadoEm) || 0) - (ms(a.criadoEm) || 0));
+  if (!pend.length) return "";
+  return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-topo"><h3>✉️ Convites aguardando (${pend.length})</h3><span class="muted pequeno">Vencem em 7 dias</span></div>
+      <div class="tabela-wrap"><table>
+        <thead><tr><th>Nome</th><th>E-mail</th><th>Permissão</th><th>Unidade</th><th>Vence</th><th></th></tr></thead>
+        <tbody>${pend.map((c) => `<tr>
+          <td><b>${esc(c.nome)}</b></td><td>${esc(c.email)}</td><td>${PAPEIS[c.papel] || esc(c.papel)}</td>
+          <td>${esc((c.unidadesNomes || []).join(", ") || "Todas")}</td><td>${data(ms(c.expiraEm))}</td>
+          <td class="num" style="white-space:nowrap"><button class="btn btn-pequeno btn-sec" data-link-convite="${c.id}">🔗 Enviar link</button>
+            <button class="btn btn-pequeno btn-texto" data-cancelar-convite="${c.id}">Cancelar</button></td></tr>`).join("")}</tbody>
+      </table></div>
+    </div>`;
+}
+
+export function mostrarLinkConvite(c) {
+  const link = linkConvite(c.id);
+  const texto = `Olá, ${c.nome.split(" ")[0]}! Você foi convidado(a) para o sistema de estoque ${c.empresaNome ? "da " + c.empresaNome : ""}. Crie sua senha por este link: ${link}`;
+  modal({
+    titulo: "Convite criado ✉️",
+    corpo: `<div class="pilha">
+      <p style="margin:0">Envie este link para <b>${esc(c.nome)}</b>. Ao abrir, a pessoa só cria a senha e já entra como <b>${PAPEIS[c.papel]}</b>${c.unidadesNomes?.length ? ` em <b>${esc(c.unidadesNomes.join(", "))}</b>` : ""}.</p>
+      <input readonly value="${esc(link)}" data-link style="font-size:13px">
+      <div class="linha">
+        <button class="btn btn-pri" data-copiar>📋 Copiar link</button>
+        <a class="btn btn-sec" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(texto)}">💬 WhatsApp</a>
+        <a class="btn btn-sec" href="mailto:${esc(c.email)}?subject=${encodeURIComponent("Convite — sistema de estoque")}&body=${encodeURIComponent(texto)}">✉️ E-mail</a>
+      </div>
+      <p class="muted pequeno" style="margin:0">Sem o link, a pessoa também pode entrar em <b>Primeiro acesso → Fui convidado</b> usando o e-mail <b>${esc(c.email)}</b> (vai precisar confirmar o e-mail). O convite vale 7 dias.</p>
+    </div>`,
+    aoAbrir: (m) => {
+      $("[data-copiar]", m).onclick = async () => {
+        try { await navigator.clipboard.writeText(link); toast("Link copiado"); }
+        catch { const i = $("[data-link]", m); i.select(); document.execCommand("copy"); toast("Link copiado"); }
+      };
+    },
+    acoes: [{ texto: "Fechar", classe: "btn-sec" }],
   });
 }
 
@@ -32,7 +79,10 @@ function desenhar(el, lista) {
   el.innerHTML = `
     <div class="grade grade-kpi" style="margin-bottom:16px">${Object.entries(PAPEIS).map(([k, t]) => `
       <div class="card"><b>${t}</b><p class="muted pequeno" style="margin:6px 0 0">${DESCRICAO[k]}</p></div>`).join("")}</div>
-    <div class="filtros"><p class="muted cresce" style="margin:0">Toque em um acesso para editar.</p><button class="btn btn-pri" data-novo>+ Novo acesso</button></div>
+    <div class="filtros"><p class="muted cresce" style="margin:0">Toque em um acesso para editar.</p>
+      <button class="btn btn-pri" data-convidar>✉️ Convidar pessoa</button>
+      <button class="btn btn-sec" data-novo>🔑 Criar login direto</button></div>
+    ${blocoConvites()}
     <div class="tabela-wrap"><table>
       <thead><tr><th>Nome</th><th>E-mail (login)</th><th>Permissão</th><th>Unidades</th><th>Situação</th><th></th></tr></thead>
       <tbody>${lista.map((u) => `<tr class="clicavel" data-id="${u.id}">
@@ -47,13 +97,56 @@ function desenhar(el, lista) {
 
   const recarregar = () => { cache = null; render(el); };
   $("[data-novo]", el).onclick = () => form(null, recarregar);
-  el.onclick = (e) => {
+  $("[data-convidar]", el).onclick = () => formConvite(lista, recarregar);
+  el.onclick = async (e) => {
+    const lk = e.target.closest("[data-link-convite]");
+    if (lk) return mostrarLinkConvite(cacheConvites.find((c) => c.id === lk.dataset.linkConvite));
+    const cc = e.target.closest("[data-cancelar-convite]");
+    if (cc) {
+      if (!(await confirmar("Cancelar convite", "O link deixará de funcionar. Continuar?", "Cancelar convite"))) return;
+      try { await cancelarConvite(cc.dataset.cancelarConvite); toast("Convite cancelado"); recarregar(); } catch (err) { toast(err.message, "erro"); }
+      return;
+    }
     const alvo = e.target.closest("[data-editar]") || e.target.closest("tr[data-id]");
     if (!alvo) return;
     const id = alvo.dataset.editar || alvo.dataset.id;
     const u = lista.find((x) => x.id === id);
     if (u) form(u, recarregar);
   };
+}
+
+// Pré-cadastro: o admin define nome, e-mail, permissão e unidade; a pessoa só cria a senha
+function formConvite(acessos, depois) {
+  const unidades = estado.unidadesPermitidas();
+  modal({
+    titulo: "Convidar pessoa",
+    corpo: `<form class="form-grade" onsubmit="return false">
+      <p class="muted campo-total" style="margin:0">A pessoa recebe um link, cria a própria senha e já entra na unidade e com a permissão que você escolher.</p>
+      <label class="campo campo-total"><span>Nome</span><input name="nome" required placeholder="Ex.: Maria Souza"></label>
+      <label class="campo campo-total"><span>E-mail da pessoa</span><input name="email" type="email" required autocomplete="off" placeholder="maria@gmail.com"><small>Será o login dela.</small></label>
+      <label class="campo campo-total"><span>Permissão</span><select name="papel">
+        <option value="gerente">${PAPEIS.gerente}</option><option value="funcionario">${PAPEIS.funcionario}</option><option value="admin">${PAPEIS.admin}</option></select>
+        <small data-desc>${DESCRICAO.gerente}</small></label>
+      <div class="campo campo-total"><span>Unidade(s)</span>
+        <div class="chips">${unidades.map((x, i) => `<label class="chip"><input type="checkbox" name="u_${x.id}" ${unidades.length === 1 || (estado.unidadeId === x.id) ? "checked" : ""} style="width:16px;height:16px;vertical-align:middle"> ${esc(x.nome)}</label>`).join("")}</div>
+        <small>Nenhuma marcada = todas as unidades.</small></div>
+    </form>`,
+    aoAbrir: (m) => { const s = $("[name=papel]", m); s.onchange = () => { $("[data-desc]", m).textContent = DESCRICAO[s.value]; }; },
+    acoes: [
+      { texto: "Cancelar", classe: "btn-sec" },
+      { texto: "Criar convite", classe: "btn-pri", onClick: async (m) => {
+        const f = $("form", m);
+        const nome = f.nome.value.trim(), email = f.email.value.trim().toLowerCase();
+        if (!nome) throw new Error("Informe o nome");
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("E-mail inválido");
+        if (acessos.some((a) => (a.email || "").toLowerCase() === email)) throw new Error("Este e-mail já tem acesso nesta empresa");
+        if (cacheConvites.some((c) => c.email === email && !situacaoConvite(c))) throw new Error("Já existe um convite aguardando para este e-mail");
+        const c = await criarConvite({ nome, email, papel: f.papel.value, unidades: $$("input[name^=u_]", f).filter((i) => i.checked).map((i) => i.name.slice(2)) });
+        mostrarLinkConvite(c);
+        depois();
+      } },
+    ],
+  });
 }
 
 function form(u, depois) {
