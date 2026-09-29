@@ -16,19 +16,79 @@ export function telaOperacao(el) {
   let fluxo = null; // { produto, funcionario, quantidade }
   let timerVolta = null;
 
+  const modoTablet = !estado.gestor; // login de tablet: só retirada, sem acesso a outras telas
+  const logo = sync.empresa()?.logo;
   el.innerHTML = `
   <div class="op">
     <header class="op-topo">
-      <h1>📦 ESTOQUE</h1>
+      <div class="op-titulo" data-titulo>
+        ${logo ? `<img class="op-logo" src="${esc(logo)}" alt="">` : `<span class="op-logo op-logo-emoji">📦</span>`}
+        <h1>RETIRADA DE ESTOQUE</h1>
+      </div>
       <span class="unidade" data-unidade></span>
       <span class="espaco"></span>
       <span class="sync" data-sync></span>
-      <button class="btn-icone" data-menu aria-label="Opções">⚙️</button>
+      <button class="btn op-recarregar" data-recarregar aria-label="Recarregar">⟳ <span>Recarregar</span></button>
+      ${modoTablet ? "" : `<button class="btn-icone" data-menu aria-label="Opções">⚙️</button>`}
     </header>
-    <div class="op-barra"><label class="op-busca"><input type="search" placeholder="Buscar produto" data-busca aria-label="Buscar produto"></label></div>
+    <div class="op-barra"><label class="op-busca"><input type="search" placeholder="Buscar produto" data-busca aria-label="Buscar produto" enterkeyhint="search"></label></div>
     <nav class="op-cats" data-cats></nav>
     <main class="op-grade" data-grade></main>
   </div>`;
+
+  // ---------------------------------------------------------- tela cheia + tela sempre acesa
+  const fsSuportado = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+  const instalado = matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches || navigator.standalone;
+  let travaTela = null;
+  async function entrarTelaCheia() {
+    try {
+      if (fsSuportado && !document.fullscreenElement && !document.webkitFullscreenElement) {
+        const r = document.documentElement;
+        await (r.requestFullscreen?.({ navigationUI: "hide" }) || r.webkitRequestFullscreen?.());
+      }
+    } catch {}
+    try { if ("wakeLock" in navigator && !travaTela) { travaTela = await navigator.wakeLock.request("screen"); travaTela.addEventListener("release", () => { travaTela = null; }); } } catch {}
+  }
+  // navegadores só permitem tela cheia após um toque: qualquer toque na tela já ativa
+  const aoTocar = () => entrarTelaCheia();
+  document.addEventListener("pointerdown", aoTocar, true);
+  let capa = null;
+  function mostrarCapa() {
+    if (!fsSuportado || instalado || document.fullscreenElement || document.webkitFullscreenElement || capa) return;
+    capa = document.createElement("div");
+    capa.className = "op-capa";
+    capa.innerHTML = `<div><div class="op-capa-ico">👆</div><h2>RETIRADA DE ESTOQUE</h2><p>Toque na tela para começar</p></div>`;
+    capa.onclick = () => { capa.remove(); capa = null; };
+    document.body.appendChild(capa);
+  }
+  const aoMudarTela = () => { if (!document.fullscreenElement && !document.webkitFullscreenElement) setTimeout(mostrarCapa, 300); };
+  document.addEventListener("fullscreenchange", aoMudarTela);
+  document.addEventListener("webkitfullscreenchange", aoMudarTela);
+  mostrarCapa();
+
+  $("[data-recarregar]", el).onclick = () => location.reload();
+
+  // Opções escondidas do tablet: segurar o título por 3 segundos (trocar unidade / sair)
+  let timerSegurar = null;
+  const titulo = $("[data-titulo]", el);
+  titulo.addEventListener("pointerdown", () => { timerSegurar = setTimeout(() => menuTablet(), 3000); });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => titulo.addEventListener(ev, () => clearTimeout(timerSegurar)));
+  function menuTablet() {
+    const m = modal({
+      titulo: "Opções do tablet",
+      corpo: `<div class="pilha">
+        <button class="btn btn-grande" style="width:100%" data-o="unidade">🏪 Trocar unidade do tablet</button>
+        <button class="btn btn-grande" style="width:100%" data-o="sair">🚪 Sair (precisa do login para entrar de novo)</button>
+      </div>`,
+      acoes: [{ texto: "Fechar", classe: "btn-sec" }],
+    });
+    m.el.addEventListener("click", async (e) => {
+      const o = e.target.closest("[data-o]")?.dataset.o; if (!o) return;
+      m.fechar();
+      if (o === "unidade") escolherUnidade();
+      if (o === "sair") await sair();
+    });
+  }
 
   const grade = $("[data-grade]", el);
   const cats = $("[data-cats]", el);
@@ -116,12 +176,11 @@ export function telaOperacao(el) {
     etapaFuncionario();
   });
 
-  $("[data-menu]", el).onclick = () => {
+  $("[data-menu]", el)?.addEventListener("click", () => {
     const m = modal({
       titulo: "Opções do tablet",
       corpo: `<div class="pilha">
         <button class="btn btn-grande" style="width:100%" data-o="unidade">🏪 Trocar unidade do tablet</button>
-        <button class="btn btn-grande" style="width:100%" data-o="tela">⛶ Tela cheia</button>
         ${estado.gestor ? `<a class="btn btn-grande" style="width:100%" href="#/admin/dashboard" data-o="admin">📊 Painel administrativo</a>` : ""}
         <button class="btn btn-grande" style="width:100%" data-o="sair">🚪 Sair do sistema</button>
       </div>`,
@@ -130,10 +189,9 @@ export function telaOperacao(el) {
       const o = e.target.closest("[data-o]")?.dataset.o; if (!o) return;
       m.fechar();
       if (o === "unidade") escolherUnidade();
-      if (o === "tela") document.documentElement.requestFullscreen?.().catch(() => {});
       if (o === "sair") await sair();
     });
-  };
+  });
 
   // ---------------------------------------------------------- etapas (sobrepostas)
   let camada = null;
@@ -332,5 +390,12 @@ export function telaOperacao(el) {
   desenhar();
   if (!unidadeId() && estado.unidadesPermitidas().length > 1) escolherUnidade(true);
 
-  return () => { pararSync(); clearTimeout(timerVolta); fecharEtapa(); $(".op-sucesso")?.remove(); };
+  return () => {
+    pararSync(); clearTimeout(timerVolta); fecharEtapa(); $(".op-sucesso")?.remove(); capa?.remove();
+    document.removeEventListener("pointerdown", aoTocar, true);
+    document.removeEventListener("fullscreenchange", aoMudarTela);
+    document.removeEventListener("webkitfullscreenchange", aoMudarTela);
+    travaTela?.release?.().catch(() => {});
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  };
 }
