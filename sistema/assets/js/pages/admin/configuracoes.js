@@ -2,7 +2,7 @@
 import { sync } from "../../core/sync.js";
 import { estado } from "../../core/estado.js";
 import { salvarEmpresa } from "../../core/db.js";
-import { $, esc, toast, confirmar, paraNumero } from "../../core/util.js";
+import { $, esc, toast, confirmar, paraNumero, lerForm, ligarMascaras, ligarCep, ligarCnpj, camposEndereco, comprimirPorTipo, IMAGENS } from "../../core/util.js";
 import { categorias } from "./componentes.js";
 
 function render(el) {
@@ -12,7 +12,20 @@ function render(el) {
   <div class="pilha" style="max-width:820px">
     <form class="card pilha" data-form>
       <h2>🏢 Empresa</h2>
-      <label class="campo"><span>Nome da empresa</span><input name="nome" value="${esc(emp.nome || "")}"></label>
+      <div class="foto-upload">
+        <div class="preview" data-preview style="background:#fff">${emp.logo ? `<img src="${esc(emp.logo)}" alt="" style="object-fit:contain">` : "🏢"}</div>
+        <div class="pilha" style="margin:0"><div class="linha"><label class="btn btn-sec">Enviar logo<input type="file" accept="image/*" data-logo hidden></label>
+          <button type="button" class="btn btn-texto" data-sem-logo ${emp.logo ? "" : "hidden"}>Remover</button></div>
+          <small class="muted">${IMAGENS.logo.dica} Aparece no menu e no tablet.</small></div>
+      </div>
+      <div class="form-grade" data-dados>
+        <label class="campo campo-largo"><span>Nome da empresa</span><input name="nome" value="${esc(emp.nome || "")}"></label>
+        <label class="campo campo-largo"><span>CNPJ</span><input name="cnpj" data-mascara="cnpj" value="${esc(emp.cnpj || "")}"></label>
+        <label class="campo campo-largo"><span>Razão social</span><input name="razaoSocial" value="${esc(emp.razaoSocial || "")}"></label>
+        <label class="campo"><span>Telefone</span><input name="telefone" data-mascara="telefone" value="${esc(emp.telefone || "")}"></label>
+        <label class="campo"><span>E-mail</span><input name="email" type="email" value="${esc(emp.email || "")}"></label>
+        ${camposEndereco(emp)}
+      </div>
 
       <h2 style="margin-top:10px">📈 Previsão de reposição</h2>
       <div class="form-grade">
@@ -43,11 +56,24 @@ function render(el) {
     </div>
   </div>`;
 
+  const dadosEl = $("[data-dados]", el);
+  ligarMascaras(dadosEl); ligarCep(dadosEl); ligarCnpj(dadosEl);
+  let logo = emp.logo || "";
+  const inLogo = $("[data-logo]", el), semLogo = $("[data-sem-logo]", el), prev = $("[data-preview]", el);
+  inLogo.onchange = async () => {
+    if (!inLogo.files[0]) return;
+    try { logo = await comprimirPorTipo(inLogo.files[0], "logo"); prev.innerHTML = `<img src="${logo}" alt="" style="object-fit:contain">`; semLogo.hidden = false; toast("Logo carregada — clique em Salvar"); }
+    catch (err) { toast(err.message, "erro"); }
+  };
+  semLogo.onclick = () => { logo = ""; prev.textContent = "🏢"; semLogo.hidden = true; };
+
   $("[data-form]", el).onsubmit = (e) => {
     e.preventDefault();
     const f = e.target;
     const cats = f.categorias.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const d = lerForm(dadosEl);
     salvarEmpresa({
+      ...d, uf: (d.uf || "").toUpperCase(), logo,
       nome: f.nome.value.trim() || emp.nome,
       categorias: cats,
       config: {
