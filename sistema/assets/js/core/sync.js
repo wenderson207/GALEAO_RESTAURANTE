@@ -27,6 +27,7 @@ const COLECOES = {
   fornecedores:  { papeis: ["admin", "gerente"] },
   movimentacoes: { papeis: ["admin", "gerente"], janelaDias: 90 },
   consumoDiario: { papeis: ["admin", "gerente"], janelaDias: 120 },
+  listasCompras: { papeis: ["admin", "gerente"] },
 };
 
 const dados = {};          // { colecao: { id: doc } }
