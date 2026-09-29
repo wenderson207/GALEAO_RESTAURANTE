@@ -1,0 +1,113 @@
+rules_version = '2';
+
+// =====================================================================
+// Regras do Firestore — Sistema de Estoque (multiempresa / multiunidade)
+//
+// Estrutura:
+//   usuarios/{uid}                       -> perfil de acesso (empresaId, papel, unidades)
+//   empresas/{eid}                       -> dados e configurações da empresa
+//   empresas/{eid}/unidades/{id}         -> restaurantes / unidades
+//   empresas/{eid}/fornecedores/{id}
+//   empresas/{eid}/funcionarios/{id}     -> funcionários do tablet (PIN com hash)
+//   empresas/{eid}/produtos/{id}
+//   empresas/{eid}/movimentacoes/{id}    -> entradas, saídas e ajustes (nunca apagadas)
+//   empresas/{eid}/consumoDiario/{id}    -> consumo agregado por unidade/dia (base da previsão)
+//
+// Todo documento gravado precisa de "atualizadoEm" = horário do servidor.
+// É isso que permite a sincronização incremental (só baixa o que mudou).
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function logado() { return request.auth != null; }
+    function refPerfil() { return /databases/$(database)/documents/usuarios/$(request.auth.uid); }
+    function perfil() { return get(refPerfil()).data; }
+    function membro(eid) {
+      return logado() && exists(refPerfil())
+        && perfil().empresaId == eid
+        && perfil().ativo == true;
+    }
+    function gestor(eid) { return membro(eid) && perfil().papel in ['admin', 'gerente']; }
+    function admin(eid) { return membro(eid) && perfil().papel == 'admin'; }
+    function carimbado() { return request.resource.data.atualizadoEm == request.time; }
+
+    // ---------------- Perfis de acesso ----------------
+    match /usuarios/{uid} {
+      allow read: if logado() && (request.auth.uid == uid || admin(resource.data.empresaId));
+
+      allow create: if logado() && (
+        // 1) Primeiro acesso: a pessoa cria a própria empresa e vira administradora
+        (
+          request.auth.uid == uid
+          && request.resource.data.papel == 'admin'
+          && !exists(/databases/$(database)/documents/empresas/$(request.resource.data.empresaId))
+          && getAfter(/databases/$(database)/documents/empresas/$(request.resource.data.empresaId)).data.donoUid == uid
+        )
+        // 2) Administrador cadastrando outro acesso da mesma empresa
+        || (admin(request.resource.data.empresaId) && request.auth.uid != uid)
+      );
+
+      allow update: if admin(resource.data.empresaId)
+        && request.resource.data.empresaId == resource.data.empresaId
+        // o administrador não pode rebaixar nem desativar a si mesmo
+        && (uid != request.auth.uid || (request.resource.data.papel == 'admin' && request.resource.data.ativo == true));
+
+      allow delete: if false;
+    }
+
+    // ---------------- Empresa e dados ----------------
+    match /empresas/{eid} {
+      allow read: if membro(eid);
+      allow create: if logado()
+        && request.resource.data.donoUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.empresaId == eid;
+      allow update: if admin(eid) && request.resource.data.donoUid == resource.data.donoUid;
+      allow delete: if false;
+
+      match /unidades/{id} {
+        allow read: if membro(eid);
+        allow create, update: if admin(eid) && carimbado();
+        allow delete: if false;
+      }
+
+      match /fornecedores/{id} {
+        allow read: if membro(eid);
+        allow create, update: if gestor(eid) && carimbado();
+        allow delete: if false;
+      }
+
+      match /funcionarios/{id} {
+        allow read: if membro(eid);
+        allow create, update: if gestor(eid) && carimbado();
+        allow delete: if false;
+      }
+
+      match /produtos/{id} {
+        allow read: if membro(eid);
+        allow create: if gestor(eid) && carimbado();
+        // Gestores editam tudo. O tablet (operação) só pode baixar o estoque.
+        allow update: if carimbado() && (
+          gestor(eid)
+          || (membro(eid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estoque', 'atualizadoEm']))
+        );
+        allow delete: if false;
+      }
+
+      // Auditoria: movimentações nunca são alteradas nem apagadas.
+      match /movimentacoes/{id} {
+        allow read: if membro(eid);
+        allow create: if carimbado()
+          && request.resource.data.usuarioUid == request.auth.uid
+          && (gestor(eid) || (membro(eid) && request.resource.data.tipo == 'saida'));
+        allow update, delete: if false;
+      }
+
+      match /consumoDiario/{id} {
+        allow read: if membro(eid);
+        allow create, update: if membro(eid) && carimbado();
+        allow delete: if false;
+      }
+    }
+  }
+}
