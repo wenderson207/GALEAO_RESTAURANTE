@@ -11,6 +11,7 @@ import dashboard from "./dashboard.js";
 import reposicao from "./reposicao.js";
 import produtos from "./produtos.js";
 import entradas from "./entradas.js";
+import listas from "./listas.js";
 import consumo from "./consumo.js";
 import movimentacoes from "./movimentacoes.js";
 import relatorios from "./relatorios.js";
@@ -27,6 +28,7 @@ const PAGINAS = [
   { id: "reposicao", titulo: "Central de reposição", ic: "🚨", mod: reposicao, papeis: ["admin", "gerente"], badge: true },
   { grupo: "Estoque" },
   { id: "produtos", titulo: "Produtos e estoque", ic: "📦", mod: produtos, papeis: ["admin", "gerente"] },
+  { id: "listas", titulo: "Listas de compras", ic: "📝", mod: listas, papeis: ["admin", "gerente"] },
   { id: "entradas", titulo: "Entradas (compras)", ic: "📥", mod: entradas, papeis: ["admin", "gerente"] },
   { id: "consumo", titulo: "Consumo", ic: "📉", mod: consumo, papeis: ["admin", "gerente"] },
   { id: "movimentacoes", titulo: "Movimentações", ic: "🔄", mod: movimentacoes, papeis: ["admin", "gerente"] },
@@ -46,7 +48,7 @@ export function telaAdmin(el, paginaId) {
   el.innerHTML = `
   <div class="admin">
     <aside class="menu">
-      <div class="logo">📦<div>Estoque Inteligente<small data-empresa></small></div></div>
+      <div class="logo"><span data-logo>📦</span><div>Estoque Inteligente<small data-empresa></small></div></div>
       ${visiveis.map((p) => p.grupo
         ? `<div class="grupo">${p.grupo}</div>`
         : `<a href="#/admin/${p.id}" class="${p.id === pagina.id ? "ativo" : ""}"><span class="ic">${p.ic}</span>${p.titulo}${p.badge ? `<span class="badge oculto" data-badge></span>` : ""}</a>`).join("")}
@@ -57,6 +59,7 @@ export function telaAdmin(el, paginaId) {
         <a href="#" data-sair><span class="ic">🚪</span>Sair</a>
       </div>
     </aside>
+    <div class="menu-fundo" data-fundo></div>
     <div class="principal">
       <header class="topo">
         <button class="btn-icone btn-menu" data-abrir-menu aria-label="Menu">☰</button>
@@ -73,6 +76,7 @@ export function telaAdmin(el, paginaId) {
   const selUnidade = $("[data-unidade]", el);
 
   $("[data-abrir-menu]", el).onclick = () => raiz.classList.toggle("menu-aberto");
+  $("[data-fundo]", el).onclick = () => raiz.classList.remove("menu-aberto");
   $$(".menu a", el).forEach((a) => a.addEventListener("click", () => raiz.classList.remove("menu-aberto")));
   $("[data-sair]", el).onclick = (e) => { e.preventDefault(); sair(); };
 
@@ -83,6 +87,8 @@ export function telaAdmin(el, paginaId) {
     selUnidade.innerHTML = (podeTodas ? `<option value="">Todas as unidades</option>` : "")
       + unidadesLista.map((u) => `<option value="${u.id}" ${u.id === atual ? "selected" : ""}>${esc(u.nome)}</option>`).join("");
     $("[data-empresa]", el).textContent = sync.empresa()?.nome || "";
+    const lg = sync.empresa()?.logo;
+    $("[data-logo]", el).innerHTML = lg ? `<img src="${esc(lg)}" alt="" style="width:40px;height:40px;border-radius:10px;object-fit:contain;background:#fff">` : "📦";
     const s = $("[data-sync]", el);
     s.textContent = status.online ? "Sincronizado" : "Offline — salvando no aparelho";
     s.classList.toggle("off", !status.online);
@@ -100,6 +106,14 @@ export function telaAdmin(el, paginaId) {
   function desenharPagina() {
     try { limparPagina?.(); } catch {}
     limparPagina = pagina.mod.render(conteudo, { unidadeId: estado.unidadeId }) || null;
+    requestAnimationFrame(dicasDeslizar);
+  }
+  // No celular, avisa quando uma tabela é mais larga que a tela (dá para deslizar para o lado)
+  function dicasDeslizar() {
+    $$(".tabela-wrap", conteudo).forEach((t) => {
+      const temDica = t.nextElementSibling?.classList.contains("dica-deslizar");
+      if (t.scrollWidth > t.clientWidth + 4 && !temDica) t.insertAdjacentHTML("afterend", `<p class="dica-deslizar">↔ Deslize a tabela para o lado para ver mais</p>`);
+    });
   }
 
   // Redesenha quando chegam dados novos (agrupado para não piscar)
@@ -108,7 +122,11 @@ export function telaAdmin(el, paginaId) {
     clearTimeout(t);
     t = setTimeout(() => {
       desenharTopo();
-      if (col !== "status" && !pagina.mod.semAutoRefresh) desenharPagina();
+      if (col === "status") return;
+      if (!pagina.mod.semAutoRefresh) return desenharPagina();
+      // páginas com formulário só redesenham se ninguém estiver digitando/com janela aberta
+      const ocupado = document.querySelector(".modal-fundo") || conteudo.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+      if ((pagina.mod.aoMudar || []).includes(col) && !ocupado) desenharPagina();
     }, 200);
   });
 
