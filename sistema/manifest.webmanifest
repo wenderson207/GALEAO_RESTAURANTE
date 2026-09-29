@@ -1,0 +1,13 @@
+{
+  "name": "Estoque Inteligente",
+  "short_name": "Estoque",
+  "start_url": "./#/operacao",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#EEF1F4",
+  "theme_color": "#0B1F1D",
+  "icons": [
+    { "src": "assets/img/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
