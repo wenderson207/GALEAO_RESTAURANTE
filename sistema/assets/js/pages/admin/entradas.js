@@ -26,7 +26,7 @@ function render(el, { unidadeId }) {
       <div class="card-topo"><h2>📥 Nova entrada</h2></div>
       ${produtos.length ? `
       <form class="form-grade" data-form>
-        <label class="campo" style="grid-column:span 2"><span>Produto</span><select name="produto" required>
+        <label class="campo campo-largo"><span>Produto</span><select name="produto" required>
           <option value="">Escolha o produto…</option>
           ${produtos.map((p) => `<option value="${p.id}" ${p.id === preSel ? "selected" : ""}>${esc(p.nome)}${unidadeId ? "" : " — " + esc(estado.nomeUnidade(p.unidadeId))} (estoque: ${num(p.estoque)} ${esc(p.unidadeMedida || "un")})</option>`).join("")}
         </select></label>
@@ -34,7 +34,7 @@ function render(el, { unidadeId }) {
         <label class="campo"><span>Custo unitário (R$)</span><input name="custo" inputmode="decimal" placeholder="0,00"></label>
         <label class="campo"><span>Fornecedor</span><select name="fornecedor">${opcoesFornecedor("")}</select></label>
         <label class="campo"><span>Data da compra</span><input name="data" type="date" value="${inputData()}" max="${inputData()}"></label>
-        <label class="campo" style="grid-column:span 2"><span>Observação (opcional)</span><input name="obs" placeholder="Nota fiscal, lote…"></label>
+        <label class="campo campo-largo"><span>Observação (opcional)</span><input name="obs" placeholder="Nota fiscal, lote…"></label>
         <div class="campo" style="justify-content:flex-end"><span data-total class="muted"></span></div>
         <div style="grid-column:1/-1" class="linha"><button class="btn btn-pri">Salvar entrada</button><span class="muted pequeno">Ao salvar: estoque aumenta, custo e fornecedor ficam registrados e a previsão é atualizada.</span></div>
       </form>` : vazio("📦", 'Cadastre produtos primeiro em <a href="#/admin/produtos">Produtos</a>.')}
